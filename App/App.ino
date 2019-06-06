@@ -14,22 +14,28 @@
 #define charge_led A5
 #define light 4
 
+//Variables génerales
 uint8_t auto_mode= 1;
+String mode="";
 float Pin=0,Pout=0,Pin_previous=0;
+uint8_t duty_cycle = 0;
 float efficiency=0.0;
 int raw_vin=0, raw_vout=0, raw_iout=0,raw_iin=0, raw_lm35=0;
+//Variables Capteurs
 float Vout_boost=14.5,Vout_max=15.0, Iout_max=5.0, Vout_float=13.5, Iout_min=0.00,Vin_thresold=10.0;
 float Iout_sense,Iin_sense,Iin;
 float Vout_sense,Vin_last;
 float Vout_sense_temp;
 float heat_sink_temp;
 float Vin_sense;
-uint8_t duty_cycle = 0;
+
+//Variables ajustement pour capteur de tension
 float volt_factor = 0.05376; //change this value to calibrate voltage readings...
-String mode="";
+//Variables d'Etats
 bool startup=true, lcd_stat=true,charge=true,mppt_init = true;
 unsigned int count=0;
 
+//Initialisation de l'interface graphique
 LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 void lcd_show(String data,int column, int row);
 void UI();
@@ -37,41 +43,43 @@ void set_limits(int cmd,int temp);
 void mem_read();
 void mem_write();
 void mppt();
+
 void setup() {
   wdt_disable();
   watchdogSetup();
   // put your setup code here, to run once:
-Serial.begin(115200);
-mem_read();
-pinMode(light,OUTPUT);
-pinMode(charge_led,OUTPUT);
-digitalWrite(charge_led,LOW);
-digitalWrite(light,HIGH);
-pinMode(led,OUTPUT);
-pinMode(fan,OUTPUT);
-pinMode(menu,INPUT);
-pinMode(button,INPUT);
-digitalWrite(menu,HIGH);
-digitalWrite(button,HIGH);
-TCCR0B = TCCR0B & 0b11111000 | 0x01; // set pwm at Max... 62.5 Khz
-analogWrite(buck_pin,0);
-lcd.begin(16,2);
-lcd_show("Solar Charger",0,0);
-delay(64000);
-wdt_reset();
-delay(64000);
-wdt_reset();
-lcd_show("Vi    Vb    Ib  ",0,0);
-//////////////////
+  Serial.begin(115200);
+  mem_read();
+  pinMode(light,OUTPUT);
+  pinMode(charge_led,OUTPUT);
+  digitalWrite(charge_led,LOW);
+  digitalWrite(light,HIGH);
+  pinMode(led,OUTPUT);
+  pinMode(fan,OUTPUT);
+  pinMode(menu,INPUT);
+  pinMode(button,INPUT);
+  digitalWrite(menu,HIGH);
+  digitalWrite(button,HIGH);
+  TCCR0B = TCCR0B & 0b11111000 | 0x01; // set pwm at Max... 62.5 Khz
+  analogWrite(buck_pin,0);
+  lcd.begin(16,2);
+  lcd_show("Solar Charger",0,0);
+  delay(64000);
+  wdt_reset();
+  delay(64000);
+  wdt_reset();
+  lcd_show("Vi    Vb    Ib  ",0,0);
+  //////////////////
 
-for(int i=0;i<10;i++) {
-raw_iout += analogRead(iout_pin)-513;
-raw_iin += analogRead(iin_pin)-513;
-raw_vin += analogRead(vin_pin);
-raw_vout += analogRead(vout_pin);
-raw_lm35 += analogRead(lm35);
-delay(2);
+  for(int i=0;i<10;i++) {
+  raw_iout += analogRead(iout_pin)-513;
+  raw_iin += analogRead(iin_pin)-513;
+  raw_vin += analogRead(vin_pin);
+  raw_vout += analogRead(vout_pin);
+  raw_lm35 += analogRead(lm35);
+  delay(2);
   }
+
   raw_iout=raw_iout/10;
   raw_iin=raw_iin/10;
   raw_vout=raw_vout/10;
@@ -191,7 +199,7 @@ Serial.print("Charger MODE : ");Serial.println(mode);
 Serial.println("Soft Start Activated");
   delay(32000);
   }
- 
+
   startup=false;
   mppt_init = false;
 }
@@ -200,7 +208,7 @@ void lcd_show(String data,int column, int row) {
  lcd.setCursor(column,row);
  if(data.length()>0) {
  for(int i=0;i<data.length();i++) {
-  lcd.print(" "); 
+  lcd.print(" ");
  }
  lcd.setCursor(column,row);
  lcd.print(data);
@@ -210,10 +218,10 @@ void lcd_show(String data,int column, int row) {
 void lcd_num(float num,int column, int row){
   lcd.setCursor(column,row);
  for(int i=0;i<6;i++) {
-  lcd.print(" "); 
+  lcd.print(" ");
  }
  lcd.setCursor(column,row);
- lcd.print(num); 
+ lcd.print(num);
  }
 
 
@@ -304,7 +312,7 @@ void UI(){
       case 6:
       lcd_show("Choose Mode     ",0,0);
       lcd_show("Auto Mode       ",0,1);
-      
+
       while(digitalRead(menu)==HIGH){
         wdt_reset();
         if(digitalRead(button)==LOW){
@@ -319,11 +327,11 @@ void UI(){
         }
         }
       break;
-      
+
       case 7:
       lcd_show("Press Men+u to   ",0,0);
       lcd_show("Save & Exit.     ",0,1);
-      
+
       while(digitalRead(menu)==HIGH){
         wdt_reset();
         }
@@ -332,8 +340,8 @@ void UI(){
       setup();
       i=1;
       break;
-      
-      
+
+
     }
   }  }
 ////////
@@ -431,7 +439,7 @@ void loop() {
     set_limits(func,temp);
   }
   ////
-  
+
   for(int i=0;i<10;i++) {
 raw_iout += analogRead(iout_pin)-513;
 raw_iin += analogRead(iin_pin)-513;
@@ -458,7 +466,7 @@ delay(1);
   }
   if(Iin_sense<0.0){
     Iin_sense = Iin_sense*(-1);
-  } 
+  }
   Pin = Vin_sense*Iin_sense;
   Pout = Vout_sense*Iout_sense;
   efficiency = Pout*100/Pin;
