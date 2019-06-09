@@ -1,561 +1,466 @@
+#include <Wire.h>
 #include <LiquidCrystal.h>
-#include <avr/wdt.h>
-#include <EEPROM.h>
-#define vin_pin A1
-#define vout_pin A0
-#define iout_pin A2
-#define iin_pin A3
-#define lm35 A4
-#define fan 5
-#define buck_pin 6
-#define menu 3
-#define button 2
-#define led 13
-#define charge_led A5
-#define light 4
+#define SOL_ADC A0     // Solar panel side voltage divider is connected to pin A0
+#define BAT_ADC A1    // Battery side voltage divider is connected to pin A1
+#define CURRENT_ADC A2  // ACS 712 current sensor is connected to pin A2
+#define TEMP_ADC A3   // LM 35 Temperature is connected to pin A3
+#define AVG_NUM 10    // number of iterations of the adc routine to average the adc readings
+#define BAT_MIN 10.5  // minimum battery voltage for 12V system
+#define BAT_MAX 15.0  // maximum battery voltage for 12V system
+#define BULK_CH_SP 14.4 // bulk charge set point for sealed lead acid battery // flooded type set it to 14.6V
+#define FLOAT_CH_SP 13.6  //float charge set point for lead acid battery
+#define LVD 11.5          //Low voltage disconnect setting for a 12V system
+#define PWM_PIN 3         // pin-3 is used to control the charging MOSFET //the default frequency is 490.20Hz
+#define LOAD_PIN 2       // pin-2 is used to control the load
+#define BAT_RED_LED 5
+#define BAT_GREEN_LED 6
+#define BAT_BLUE_LED 7
+#define LOAD_RED_LED 8
+#define LOAD_GREEN_LED 9
+//--------------------------------------------------------------------------------------------------------------------------
+///////////////////////DECLARATION OF ALL BIT MAP ARRAY FOR FONTS////////////////////////////////////////////////////////////////
+//--------------------------------------------------------------------------------------------------------------------------
 
-uint8_t auto_mode = 1;
-float Pin = 0, Pout = 0, Pin_previous = 0;
-float efficiency = 0.0;
-int raw_vin = 0, raw_vout = 0, raw_iout = 0, raw_iin = 0, raw_lm35 = 0;
-float Vout_boost = 14.5, Vout_max = 15.0, Iout_max = 5.0, Vout_float = 13.5, Iout_min = 0.00, Vin_thresold = 10.0;
-float Iout_sense, Iin_sense, Iin;
-float Vout_sense, Vin_last;
-float Vout_sense_temp;
-float heat_sink_temp;
-float Vin_sense;
-uint8_t duty_cycle = 0;
-float volt_factor = 0.05376; //change this value to calibrate voltage readings...
-String mode = "";
-bool startup = true, lcd_stat = true, charge = true, mppt_init = true;
-unsigned int count = 0;
-
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
-
-void lcd_show(String data, int column, int row);
-void UI();
-void set_limits(int cmd, int temp);
-void mem_read();
-void mem_write();
-void mppt();
-
-void setup() {
-  // Mise en place du timer d'interruption
-  wdt_disable();
-  watchdogSetup();
-  // initialisation de la communication série
-  Serial.begin(115200);
-  // Recupération des infos de la mémoir EEPROM
-  mem_read();
-  //Configuration des PINS
-  pinMode(light, OUTPUT); //pin 4
-  pinMode(charge_led, OUTPUT); //pin 4
-  digitalWrite(charge_led, LOW);
-  digitalWrite(light, HIGH);
-  pinMode(led, OUTPUT); //pin 4
-  pinMode(fan, OUTPUT); //pin 4
-  pinMode(menu, INPUT); //pin 4
-  pinMode(button, INPUT); //pin 4
-  digitalWrite(menu, HIGH);
-  digitalWrite(button, HIGH);
-  //Configuration de la pwm
-  TCCR0B = TCCR0B & 0b11111000 | 0x01; // set pwm at Max... 62.5 Khz
-  analogWrite(buck_pin, 0);
-  //initialisation du lcd
-  lcd.begin(16, 2);
-  //Message de démarrage
-  lcd_show("Solar Charger", 0, 0);
-  delay(64000);
-  //Remise à 0 du timer
-  wdt_reset();
-  //Tempo
-  delay(64000);
-  //Remise à 0 du timer
-  wdt_reset();
-  // Affichage des Entêtes
-  lcd_show("Vi    Vb    Ib  ", 0, 0);
-  //////////////////
-  //Récupération des infos de tension, courant en entrée et tension sortie
-  for (int i = 0; i < 10; i++) {
-    raw_iout += analogRead(iout_pin) - 513;
-    raw_iin += analogRead(iin_pin) - 513;
-    raw_vin += analogRead(vin_pin);
-    raw_vout += analogRead(vout_pin);
-    raw_lm35 += analogRead(lm35);
-    delay(2);
-  }
-  //Mise en forme des données
-  raw_iout = raw_iout / 10;
-  raw_iin = raw_iin / 10;
-  raw_vout = raw_vout / 10;
-  raw_vin = raw_vin / 10;
-  Iout_sense = float(raw_iout) * 5 / 1023 / 0.066;
-  Iin_sense = float(raw_iin) * 5 / 1023 / 0.066;
-  Vout_sense_temp = float(raw_vout) * volt_factor;
-  Vin_sense = float(raw_vin) * volt_factor;
-  // heat_sink_temp = raw_lm35*0.48; // 0.0049*1000/10
-  // heat_sink_temp = heat_sink_temp-273.15; //uncomment if using LM235
-
-}
-
-//////////
-void watchdogSetup(void)
+byte solar[8] = //icon for solar panel
 {
-  cli();  // disable all interrupts
-  wdt_reset(); // reset the WDT timer
-  // Enter Watchdog Configuration mode:
-  WDTCSR |= (1 << WDCE) | (1 << WDE);
-  // Set Watchdog settings:
-  WDTCSR = (1 << WDIE) | (1 << WDE) | (1 << WDP3) | (0 << WDP2) | (0 << WDP1) | (1 << WDP0);
-  sei(); //activate all interrupts
-}
-///////
-ISR(WDT_vect) // Watchdog timer interrupt.
+  0b11111,0b10101,0b11111,0b10101,0b11111,0b10101,0b11111,0b00000
+};
+byte battery[8] =  //icon for battery
 {
-  Serial.println(("WDT reset."));
-  asm volatile (" jmp 0");
-  // Include your code here - be careful not to use functions they may cause the interrupt to hang and
-  // prevent a reset.
-}
-/////
+  0b01110,0b11011,0b10001,0b10001,0b10001,0b10001,0b10001,0b11111
+};
+
+byte energy[8] =  // icon for power
+{
+  0b00010,0b00100,0b01000,0b11111,0b00010,0b00100,0b01000,0b00000
+};
+/*byte alarm[8] =  // icon for alarm
+{
+ 0b00000,0b00100,0b01110,0b01110,0b01110,0b11111,0b00000,0b00100
+};*/
+byte temp[8] = //icon for termometer
+{
+ 0b00100,0b01010,0b01010,0b01110,0b01110,0b11111,0b11111,0b01110
+};
+
+byte charge[8] = // icon for battery charge
+{
+  0b01010,0b11111,0b10001,0b10001,0b10001,0b01110,0b00100,0b00100,
+};
+byte not_charge[8]=
+{
+  0b00000,0b10001,0b01010,0b00100,0b01010,0b10001,0b00000,0b00000,
+};
 
 
-////This function provides various regulations and MPPT implementation...
-void regulate(float Iout, float Vin, float Vout) {
-  mode = "";
-  mode = "Buck mode";
-  if ((Vout > Vout_max) || (Iout > Iout_max) || ((Pin > Pin_previous && Vin_sense < Vin_last) || (Pin < Pin_previous && Vin_sense > Vin_last))) {
-    if (duty_cycle > 0) {
-      duty_cycle -= 1;
-    }
-    analogWrite(buck_pin, duty_cycle);
-  }
-  else if ((Vout < Vout_max) && (Iout < Iout_max) && ((Pin > Pin_previous && Vin_sense > Vin_last) || (Pin < Pin_previous && Vin_sense < Vin_last))) {
-    if (duty_cycle < 250) {
-      duty_cycle += 1;
-    }
-    analogWrite(buck_pin, duty_cycle);
-  }
-  Pin_previous = Pin;
-  Vin_last = Vin;
-}
+//--------------------------------------------------------------------------------------------------------------------------
+///////////////////////DECLARATION OF ALL GLOBAL VARIABLES//////////////////////////////////////////////////////////////////
+//--------------------------------------------------------------------------------------------------------------------------
+float solar_volt=0;
+float bat_volt=0;
+float load_current=0;
+int temperature=0;
+int temp_change=0;
+float system_volt=0;
+float bulk_charge_sp=0;
+float float_charge_sp=0;
+float charge_status=0;
+float load_status=0;
+float error=0;
+float Ep=0;
+int duty =0;
+float lvd;
+float msec=0;
+float last_msec=0;
+float elasped_msec=0;
+float elasped_time=0;
+float ampSecs = 0;
+float ampHours=0;
+float watts=0;
+float wattSecs = 0;
+float wattHours=0;
 
+// Set the pins on the I2C chip used for LCD connections:
+//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);  // Set the LCD I2C address // In my case 0x27
+//******************************************************* MAIN PROGRAM START ************************************************
+void setup()
+{
 
-void auto_cutoff(float Iout, float Vin, float Vout) {
-  ////////////
-  if (Vout <= Vout_float && Iout > Iout_min + 1) {
-    charge = true;
-  }
-  /////////////
-  if ((Vout > Vout_max) && (Iout < Iout_min) && (charge == true)) {
-    charge = false;
-    Serial.println("Charging Completed.");
-    digitalWrite(led, HIGH);
-    digitalWrite(charge_led, LOW);
-  }
-  else if (Vin < Vin_thresold) {
-    duty_cycle = 0;
-    analogWrite(buck_pin, duty_cycle);
-    Serial.println("LOW Input Voltage.");
-    lcd_show("Input Volt. Low  ", 0, 1);
-    wdt_reset();
-    for (int i = 0; i < 10; i++) {
-      digitalWrite(led, HIGH);
-      digitalWrite(charge_led, LOW);
-      delay(6000);
-      digitalWrite(charge_led, HIGH);
-      digitalWrite(led, LOW);
-      delay(6000);
-    }
-    wdt_reset();
-  }
-  else if (heat_sink_temp > 80.0) {
-    duty_cycle = 0;
-    analogWrite(buck_pin, duty_cycle);
-    Serial.println("Over Heat Shutdown");
-    lcd_show("Over Heat Fail  ", 0, 1);
-    wdt_reset();
-    for (int i = 0; i < 10; i++) {
-      digitalWrite(led, HIGH);
-      digitalWrite(charge_led, LOW);
-      delay(4000);
-      digitalWrite(charge_led, HIGH);
-      digitalWrite(led, LOW);
-      delay(4000);
-    }
-    wdt_reset();
-  }
-  else {
-    charge = true;
-    digitalWrite(charge_led, HIGH);
-    regulate(Iout_sense, Vin_sense, Vout_sense);
-    digitalWrite(led, LOW);
-  }
-}
-
-void soft_start() {
-  for (int i = 0; i < 20; i++) {
-    regulate(Iout_sense, Vin_sense, Vout_sense);
-    Serial.print("Vin= "); Serial.println(Vin_sense);
-    Serial.print("Vout= "); Serial.println(Vout_sense);
-    Serial.print("Iout= "); Serial.println(Iout_sense);
-    Serial.print("Duty cycle= "); Serial.println(duty_cycle);
-    Serial.print("Charger MODE : "); Serial.println(mode);
-    Serial.println("Soft Start Activated");
-    delay(32000);
-  }
-
-  startup = false;
-  mppt_init = false;
+Serial.begin(9600);
+pinMode(BAT_RED_LED,OUTPUT);
+pinMode(BAT_GREEN_LED,OUTPUT);
+pinMode(BAT_BLUE_LED,OUTPUT);
+pinMode(LOAD_RED_LED ,OUTPUT);
+pinMode(LOAD_GREEN_LED,OUTPUT);
+pinMode(PWM_PIN,OUTPUT);
+pinMode(LOAD_PIN,OUTPUT);
+digitalWrite(PWM_PIN,LOW);  // default value of pwm duty cycle
+digitalWrite(LOAD_PIN,LOW);  // default load state is OFF
+lcd.begin(20,4);   // initialize the lcd for 16 chars 2 lines, turn on backlight
+//lcd.backlight(); // finish with backlight on
+lcd.createChar(1,solar);
+lcd.createChar(2, battery);
+lcd.createChar(3, energy);
+//lcd.createChar(4,alarm);
+lcd.createChar(5,temp);
+lcd.createChar(6,charge);
+lcd.createChar(7,not_charge);
+lcd.clear();
 }
 
-void lcd_show(String data, int column, int row) {
-  lcd.setCursor(column, row);
-  if (data.length() > 0) {
-    for (int i = 0; i < data.length(); i++) {
-      lcd.print(" ");
-    }
-    lcd.setCursor(column, row);
-    lcd.print(data);
+void loop()
+{
+ read_data();             // read different sensors data from analog pin of arduino
+ system_voltage();        // detect the system voltage according to battery voltage
+ setpoint();      // decide the charge set point according to system voltage
+ charge_cycle();         // pwm charging of battery
+ power();                // calculate the load power and energy
+ load_control();         //control the load
+ led_indication();       // led indica
+ print_data();            // print in serial monitor
+ lcd_display();           // lcd display
+ }
+//************************************************************ PROGRAM END *************************************************
+
+
+//------------------------------------------------------------------------------------------------------
+////////////////// READS AND AVERAGES THE ANALOG INPUTS (SOLRAR VOLTAGE,BATTERY VOLTAGE)////////////////
+//------------------------------------------------------------------------------------------------------
+int read_adc(int adc_parameter)
+{
+
+  int sum = 0;
+  int sample ;
+  for (int i=0; i<AVG_NUM; i++)
+  {                                        // loop through reading raw adc values AVG_NUM number of times
+    sample = analogRead(adc_parameter);    // read the input pin
+    sum += sample;                        // store sum for averaging
+    delayMicroseconds(50);              // pauses for 50 microseconds
   }
+  return(sum / AVG_NUM);                // divide sum by AVG_NUM to get average and return it
+}
+//-------------------------------------------------------------------------------------------------------------
+////////////////////////////////////READ THE DATA//////////////////////////////////////////////////////////////
+//-------------------------------------------------------------------------------------------------------------
+ void read_data(void)
+ {
+    //5V = ADC value 1024 => 1 ADC value = (5/1024)Volt= 0.0048828Volt
+    // Vout=Vin*R2/(R1+R2) => Vin = Vout*(R1+R2)/R2   R1=100 and R2=20
+     solar_volt = read_adc(SOL_ADC)*0.00488*(120/20);
+     bat_volt   = read_adc(BAT_ADC)*0.00488*(120/20);
+     load_current = (read_adc(CURRENT_ADC)*.0488 -25);
+     temperature = read_adc(TEMP_ADC)*0.00488*100;
+
+  }
+  //------------------------------------------------------------------------------------------------------------
+/////////////////////////////////POWER AND ENERGY CALCULATION //////////////////////////////////////////////
+//------------------------------------------------------------------------------------------------------------
+void power(void)
+
+{
+msec = millis();
+elasped_msec = msec - last_msec; //Calculate how long has past since last call of this function
+elasped_time = elasped_msec / 1000.0; // 1sec=1000 msec
+watts = load_current * bat_volt; //Watts now
+ampSecs = (load_current*elasped_time); //AmpSecs since last measurement
+wattSecs = ampSecs * bat_volt; //WattSecs since last measurement
+ampHours = ampHours + ampSecs/3600; // 1 hour=3600sec //Total ampHours since program started
+wattHours = wattHours + wattSecs/3600; // 1 hour=3600sec //Total wattHours since program started
+last_msec = msec; //Store 'now' for next time
 }
 
-void lcd_num(float num, int column, int row) {
-  lcd.setCursor(column, row);
-  for (int i = 0; i < 6; i++) {
-    lcd.print(" ");
-  }
-  lcd.setCursor(column, row);
-  lcd.print(num);
-}
-
-
-void UI() {
-  int cmd = 0, i = 0 ;
-  while (i == 0) {
-    wdt_reset();
-    if (digitalRead(menu) == LOW) {
-      cmd += 1;
-      delay(64000);
+//------------------------------------------------------------------------------------------------------------
+/////////////////////////////////PRINT DATA IN SERIAL MONITOR/////////////////////////////////////////////////
+//------------------------------------------------------------------------------------------------------------
+  void print_data(void)
+  {
+    delay(100);
+    Serial.print("Solar Panel Voltage: ");
+    Serial.print(solar_volt);
+    Serial.println("V");
+    Serial.print("Battery Voltage: ");
+    Serial.print(bat_volt);
+    Serial.println("V");
+    Serial.print("Syestem Voltage: ");
+    Serial.print(system_volt);
+    Serial.println("V");
+    Serial.print("Charge Set Point:");
+    Serial.println(bulk_charge_sp);
+    Serial.print("Temperature:");
+    Serial.print(temperature);
+    Serial.println("C");
+    Serial.print("Load Current: ");
+    Serial.print(load_current);
+    Serial.println("A");
+    Serial.print("Power: ");
+    Serial.print(watts);
+    Serial.println("W");
+    Serial.print("Energy: ");
+    Serial.print(wattHours);
+    Serial.println("WH");
+    Serial.print("Duty Cycle :");
+    if (charge_status==1)
+    {
+    Serial.println("99%");
+    Serial.println("BULK CHARGING");
     }
-    switch (cmd) {
-      case 1:
-        lcd_show("Vb Boost=", 0, 0);
-        lcd_num(Vout_boost, 9, 0);
-        while (digitalRead(menu) == HIGH) {
-          wdt_reset();
-          if (digitalRead(button) == LOW) {
-            Vout_boost += 0.02;
-            if (Vout_boost > 17.0) {
-              Vout_boost = 0;
-            }
-            delay(8000);
-            lcd_num(Vout_boost, 9, 0);
-          }
+    else if (charge_status==2)
+    {
+    Serial.print(Ep);
+    Serial.println("%");
+    Serial.println("FLOAT CHARGING");
+    }
+    else
+    {
+    Serial.println("0%");
+    Serial.println("NOT CHARGING");
+    }
+    if(load_status==1)
+    {
+     Serial.println("LOAD IS CONNECTED");
+    }
+    else
+    {
+     Serial.println("LOAD IS DISCONNECTED");
+    }
+
+    Serial.println("***************************");
+ }
+//----------------------------------------------------------------------------------------------------------------------
+//////////////////////////////////SYSTEM VOLTAGE AUTO DETECT ///////////////////////////////////////////////////////////
+//----------------------------------------------------------------------------------------------------------------------
+void system_voltage(void)
+{
+  if ((bat_volt >BAT_MIN) && (bat_volt < BAT_MAX))
+  {
+     system_volt = 12;
+  }
+  /*
+  else if  ((bat_volt > BAT_MIN*2 ) && (bat_volt < BAT_MAX*2))
+  {
+    system_volt=24;
+  }*/
+  else if ((bat_volt > BAT_MIN/2 ) && (bat_volt < BAT_MAX/2))
+  {
+    system_volt=6;
+  }
+
+}
+//---------------------------------------------------------------------------------------------------------------------------
+ ////////////////////////////////////CHARGE SET POINT ///////////////////////////////////////////////////////////////////////
+//---------------------------------------------------------------------------------------------------------------------------
+
+void setpoint(void)
+{
+  temp_change =temperature-25.0; // 25deg cel is taken as standard room temperature
+ // temperature compensation = -5mv/degC/Cell
+  // If temperature is above the room temp ;Charge set point should reduced
+  // If temperature is bellow the room temp ;Charge set point should increased
+  if(system_volt ==12)
+  {
+     bulk_charge_sp = BULK_CH_SP-(0.030*temp_change) ;
+     float_charge_sp=FLOAT_CH_SP-(0.030*temp_change) ;
+     lvd =LVD;
+  }
+
+  else if(system_volt ==6)
+  {
+     bulk_charge_sp = (BULK_CH_SP/2)-(0.015*temp_change) ;
+     float_charge_sp= (FLOAT_CH_SP/2)-(0.015*temp_change) ;
+     lvd=LVD/2;
+  }
+  /*
+  else if (system_volt == 24)
+  {
+   bulk_charge_sp = (BULK_CH_SP*2)-(0.060*temp_change) ;
+   float_charge_sp= (FLOAT_CH_SP*2)-(0.060*temp_change) ;
+   lvd=LVD*2;
+  }
+  */
+
+}
+//--------------------------------------------------------------------------------------------------------------------------------
+ ///////////////////////////////////////////////////PWM CHARGE CYCLE @500 HZ //////////////////////////////////////////////////
+ //-------------------------------------------------------------------------------------------------------------------------------
+void charge_cycle(void)
+{
+  if (solar_volt > bat_volt && bat_volt <= bulk_charge_sp)
+  {
+
+
+   if (bat_volt <= float_charge_sp) // charging start
+  {
+     charge_status = 1; // indicate the charger is in BULK mode
+     duty= 252.45;
+     analogWrite(PWM_PIN,duty); // 99 % duty cycle // rapid charging
+
+
+  }
+  else if (bat_volt >float_charge_sp && bat_volt <= bulk_charge_sp)
+  {
+      charge_status = 2; // indicate the charger is in FLOAT mode
+      error  = (bulk_charge_sp - bat_volt);      // duty cycle reduced when the battery voltage approaches the charge set point
+      Ep= error *100 ; //Ep= error* Kp // Assume  Kp=100
+
+      if(Ep < 0)
+       {
+        Ep=0;
         }
-        break;
-      case 2:
-        lcd_show("Vb Float=", 0, 0);
-        lcd_num(Vout_float, 9, 0);
-        while (digitalRead(menu) == HIGH) {
-          wdt_reset();
-          if (digitalRead(button) == LOW) {
-            Vout_float += 0.02;
-            if (Vout_float > 17.0) {
-              Vout_float = 0;
-            }
-            delay(8000);
-            lcd_num(Vout_float, 9, 0);
-          }
+      else if(Ep>100)
+        {
+         Ep=100;
         }
-        break;
-      case 3:
-        lcd_show("Ib max.= ", 0, 0);
-        lcd_num(Iout_max, 9, 0);
-        while (digitalRead(menu) == HIGH) {
-          wdt_reset();
-          if (digitalRead(button) == LOW) {
-            Iout_max += 0.05;
-            if (Iout_max > 20.0) {
-              Iout_max = 0;
-            }
-            delay(8000);
-            lcd_num(Iout_max, 9, 0);
-          }
-        }
-        break;
-      case 4:
-        lcd_show("Ib min.= ", 0, 0);
-        lcd_num(Iout_min, 9, 0);
-        while (digitalRead(menu) == HIGH) {
-          wdt_reset();
-          if (digitalRead(button) == LOW) {
-            Iout_min += 0.05;
-            if (Iout_min > 20.0) {
-              Iout_min = 0.0;
-            }
-            delay(8000);
-            lcd_num(Iout_min, 9, 0);
-          }
-        }
-        break;
-      case 5:
-        lcd_show("Vin min.= ", 0, 0);
-        lcd_num(Vin_thresold, 9, 0);
-        while (digitalRead(menu) == HIGH) {
-          wdt_reset();
-          if (digitalRead(button) == LOW) {
-            Vin_thresold += 0.02;
-            if (Vin_thresold > 18.0) {
-              Vin_thresold = 0;
-            }
-            delay(8000);
-            lcd_num(Vin_thresold, 9, 0);
-          }
-        }
-        break;
-
-      case 6:
-        lcd_show("Choose Mode     ", 0, 0);
-        lcd_show("Auto Mode       ", 0, 1);
-
-        while (digitalRead(menu) == HIGH) {
-          wdt_reset();
-          if (digitalRead(button) == LOW) {
-            auto_mode = ~auto_mode;
-            if (auto_mode) {
-              lcd_show("Auto Mode ON    ", 0, 1);
-            }
-            else {
-              lcd_show("Auto Mode OFF   ", 0, 1);
-            }
-            delay(32000);
-          }
-        }
-        break;
-
-      case 7:
-        lcd_show("Press Menu to   ", 0, 0);
-        lcd_show("Save & Exit.     ", 0, 1);
-
-        while (digitalRead(menu) == HIGH) {
-          wdt_reset();
-        }
-        //Save Setting to EEPROM.
-        mem_save();
-        setup();
-        i = 1;
-        break;
-
-
-    }
-  }
+      else if(Ep>0 && Ep <=100) // regulating
+       {
+         duty = (Ep*255)/100;
+       }
+       analogWrite(PWM_PIN,duty);
+   }
+ }
+   else
+   {
+   charge_status=0;  // indicate the charger is OFF
+   duty=0;
+   analogWrite(PWM_PIN,duty);
+   }
 }
-////////
-void mem_save() {
-  uint8_t value = 0;
-  for (int i = 0; i < 7; i++) {
-    EEPROM.write(i, 0);
-  }
-  value = Vout_boost * 10;
-  EEPROM.write(1, value);
-  value = Vout_float * 10;
-  EEPROM.write(2, value);
-  value = Iout_max * 10;
-  EEPROM.write(3, value);
-  value = Iout_min * 10;
-  EEPROM.write(4, value);
-  // EEPROM.write(5,auto_mode);
-  value = Vin_thresold * 10;
-  EEPROM.write(6, value);
-}
-/////
+//----------------------------------------------------------------------------------------------------------------------
+/////////////////////////////////////////////LOAD CONTROL/////////////////////////////////////////////////////
+//----------------------------------------------------------------------------------------------------------------------
 
-void mem_read() {
-  Vout_boost = float(EEPROM.read(1)) / 10;
-  Vout_float = float(EEPROM.read(2)) / 10;
-  Iout_max = float(EEPROM.read(3)) / 10;
-  Iout_min = float(EEPROM.read(4)) / 10;
-  // auto_mode = EEPROM.read(5);
-  Vin_thresold = float(EEPROM.read(6)) / 10;
-  for (int i = 0; i < 7; i++) {
-    Serial.println(float(EEPROM.read(i)) / 10);
+void load_control()
+{
+ if (solar_volt < 5  ) // load will on when night
+{
+  if(bat_volt >lvd)   // check if battery is healthy
+  {
+  load_status=1;
+  digitalWrite(LOAD_PIN, HIGH); // load is ON
   }
-}
-void set_limits(int cmd, int temp) {
-  switch (cmd) {
-    case 1:
-      Vout_boost = float(temp) / 10;
-      Serial.print("Vout_boost= ");
-      Serial.println(Vout_boost);
-      break;
-    case 2:
-      Vout_float = float(temp) / 10;
-      Serial.print("Vout_float= ");
-      Serial.println(Vout_float);
-      break;
-    case 3:
-      Iout_max = float(temp) / 10;
-      Serial.print("Iout_max= ");
-      Serial.println(Iout_max);
-      break;
-    case 4:
-      Iout_min = float(temp) / 10;
-      Serial.print("Iout_min= ");
-      Serial.println(Iout_min);
-      break;
-    case 5:
-      auto_mode = ~auto_mode;
-      if (auto_mode == 1) {
-        Serial.println("Auto Mode ON    ");
-      }
-      else {
-        Serial.println("Auto Mode OFF   ");
-      }
-      break;
-    case 6:
-      Vin_thresold = float(temp) / 10;
-      Serial.print("Vin_thresold= ");
-      Serial.println(Vin_thresold);
-      break;
+  else if(bat_volt < lvd)
+  {
+    load_status=0;
+   digitalWrite(LOAD_PIN, LOW); //load is OFF
   }
+ }
+ else // load will off during day
+ {
+   load_status=0;
+   digitalWrite(LOAD_PIN, LOW);
+ }
 }
 
-void loop() {
-  //interruption
-  //Remise à 0 du timer
-  wdt_reset();
-  //Si on charge
-  if (charge) {
-    //Tension max = Tension de charge max
-    Vout_max = Vout_boost;
-  }
-  else {
-    //Tension max = Tension de maintenance
-    Vout_max = Vout_float;
-  }
-  //Remise à 0 des pins d'infos
-  raw_vin = 0;
-  raw_vout = 0;
-  raw_iout = 0;
-  raw_lm35 = 0;
-  //Si Menu pas affiché, affiché l'interface utilisateur
-  if (digitalRead(menu) == LOW) {
-    UI();
-  }
-  //Si liaison série existe
-  if (Serial.available() > 0) {
-    //récupère infos
-    String data = Serial.readString();
-    //Récupère la témpérature
-    int temp = data.toInt();
-    //En %
-    int func = temp % 10;
-    temp = temp / 10;
-    //Envoie vers set_limits
-    set_limits(func, temp);
-  }
-  ////
 
-  for (int i = 0; i < 10; i++) {
-    //Test
-    raw_iout += 1;
-    raw_iin += 2;
-    raw_vin += 12;
-    raw_vout += 4.3;
-    raw_lm35 += 20.5;
-    /*
-    raw_iout += analogRead(iout_pin) - 513;
-    raw_iin += analogRead(iin_pin) - 513;
-    raw_vin += analogRead(vin_pin);
-    raw_vout += analogRead(vout_pin);
-    raw_lm35 += analogRead(lm35);*/
-    delay(1);
-  }
-  //////////
-  raw_iout = raw_iout / 10;
-  raw_iin = raw_iin / 10;
-  raw_vout = raw_vout / 10;
-  raw_vin = raw_vin / 10;
-  raw_lm35 = raw_lm35 / 10;
-  /////
-  Iout_sense = float(raw_iout) * 5 / 1023 / 0.066;
-  Iin_sense = float(raw_iin) * 5 / 1023 / 0.066;
-  Vin_sense = Vin_sense * 0.92 + float(raw_vin) * volt_factor * 0.08;
-  Vout_sense = Vout_sense * 0.92 + float(raw_vout) * volt_factor * 0.08; //measure output voltage.
-  heat_sink_temp = heat_sink_temp * 0.92 + float(raw_lm35) * 0.48 * 0.08; // 0.0049*1000/10
-  ////////////
-  if (Iout_sense < 0.0) {
-    Iout_sense = Iout_sense * (-1);
-  }
-  if (Iin_sense < 0.0) {
-    Iin_sense = Iin_sense * (-1);
-  }
-  Pin = Vin_sense * Iin_sense;
-  Pout = Vout_sense * Iout_sense;
-  efficiency = Pout * 100 / Pin;
-  if (efficiency < 0.0) {
-    efficiency = 0.0;
-  }
+//-------------------------------------------------------------------------------------------------
+//////////////////////////LED INDICATION////////////////////////////////////
+//-------------------------------------------------------------------------------------------------
+void led_indication(void)
+{
+  battery_led();           //Battery status led indication
+  load_led();              //Load led indication
+}
 
+//----------------------------------------------------------------------------------------------------------------------
+/////////////////////////////////////////////BATTERY LED INDICATION/////////////////////////////////////////////////////
+//----------------------------------------------------------------------------------------------------------------------
+void battery_led(void)
+{
 
-  if (count > 100) {
-    Serial.print("heat_sink_temp = "); Serial.println(heat_sink_temp);
-    Serial.print("Raw= "); Serial.println(raw_iout);
-    Serial.print("Vin= "); Serial.println(Vin_sense);
-    Serial.print("Iin= "); Serial.println(Iin_sense);
-    Serial.print("Vout= "); Serial.println(Vout_sense);
-    Serial.print("Iout= "); Serial.println(Iout_sense);
-    Serial.print("Duty cycle= "); Serial.print(duty_cycle / 2.55); Serial.println("%");
-    Serial.print("PV power = "); Serial.println(Pin);
-    Serial.print("Output power = "); Serial.println(Pout);
-    Serial.print("Efficiency = "); Serial.print(efficiency); Serial.println("%");
-    Serial.print("Converter MODE : "); Serial.println(mode);
-    //Si lcd est allumé
-    if (lcd_stat) {
-      lcd_num(Iin_sense, 0, 1);
-      lcd_show("T-", 0, 0);
-      lcd_num(heat_sink_temp, 2, 0);
-      lcd_show("E-", 8, 0);
-      lcd_num(efficiency, 10, 0); lcd_show("%", 15, 0);
-      lcd_stat = false;
+   if( (bat_volt > system_volt) && ( bat_volt < bulk_charge_sp))
+  {
+      leds_off_all();
+      digitalWrite(BAT_GREEN_LED,LOW);  // battery voltage is healthy
+  }
+  else if(bat_volt >= bulk_charge_sp)
+  {
+      leds_off_all();
+      digitalWrite(BAT_BLUE_LED,LOW);  //battery is fully charged
+  }
+   else if(bat_volt < system_volt)
+  {
+      leds_off_all();
+      digitalWrite(BAT_RED_LED,LOW);  // battery voltage low
+  }
+}
+//----------------------------------------------------------------------------------------------------------------------
+/////////////////////////////////////////////LOAD LED INDICATION/////////////////////////////////////////////////////
+//----------------------------------------------------------------------------------------------------------------------
+
+  void load_led()
+  {
+    if(load_status==1)
+    {
+      digitalWrite(LOAD_GREEN_LED,HIGH);
     }
-    else {
-      lcd_num(Vin_sense, 0, 1);
-      lcd_show(" ", 15, 0);
-      if (charge) {
-        lcd_show("Vi    Vb-B  Ib  ", 0, 0);
-      }
-      else {
-        lcd_show("Vi    Vb-F  Ib  ", 0, 0);
-      }
-      lcd_stat = true;
+    else if(load_status==0)
+    {
+      digitalWrite(LOAD_RED_LED,HIGH);
     }
+   }
 
-    lcd_num(Vout_sense, 6, 1);
-    lcd_num(Iout_sense, 12, 1);
-    digitalWrite(led, HIGH);
-    delay(16000);
-    count = 0;
-  }
-  if (startup == false) {
-    if (auto_mode == 1) {
-      auto_cutoff(Iout_sense, Vin_sense, Vout_sense);
-    }
-    else {
-      digitalWrite(charge_led, HIGH);
-      regulate(Iout_sense, Vin_sense, Vout_sense);
-      digitalWrite(led, ~digitalRead(led));
-    }
-  }
-  /////////
-  if (heat_sink_temp > 45.0) {
-    digitalWrite(fan, HIGH);
-  }
-  else if (heat_sink_temp < 37.0) {
-    digitalWrite(fan, LOW);
-  }
+//------------------------------------------------------------------------------------------------------
+//////////////////////// TURN OFF ALL THE LED///////////////////////////////////////////////////////////
+//------------------------------------------------------------------------------------------------------
+void leds_off_all(void)
+{
 
-  count++;
+  digitalWrite(BAT_RED_LED,HIGH);
+  digitalWrite(BAT_GREEN_LED,HIGH);
+  digitalWrite(BAT_BLUE_LED,HIGH);
+  digitalWrite(LOAD_RED_LED, LOW);
+  digitalWrite(LOAD_GREEN_LED, LOW);
+}
+//------------------------------------------------------------------------------------------------------
+//////////////////////// LCD DISPLAY///////////////////////////////////////////////////////////
+//------------------------------------------------------------------------------------------------------
+void lcd_display()
+{
+ lcd.setCursor(0, 0);
+ lcd.write(1);
+ lcd.setCursor(2, 0);
+ lcd.print(solar_volt);
+ lcd.print("V");
+
+ lcd.setCursor(9, 0);
+ lcd.write(5);
+ lcd.setCursor(11, 0);
+ lcd.print(temperature);
+ lcd.write(0b11011111);
+ lcd.print("C");
+
+ lcd.setCursor(0,1);
+ lcd.write(2);
+ lcd.setCursor(2, 1);
+ lcd.print(bat_volt);
+ lcd.print("V");
+ lcd.setCursor(9, 1);
+ lcd.write(2);
+ if((charge_status==1) | (charge_status== 2))
+ {
+ lcd.write(6);
+ }
+ else
+ {
+ lcd.write(7);
+ }
+ delay(3000);
+ lcd.clear();
+
+ lcd.setCursor(0,0);
+ lcd.write(3);
+ lcd.setCursor(2,0);
+ lcd.print(load_current);
+ lcd.print("A");
+ lcd.setCursor(9,0);
+ lcd.print(watts);
+ lcd.print("W");
+ lcd.setCursor(0,1);
+ lcd.print("Energy: ");
+ lcd.print(wattHours);
+ lcd.print("WH");
+
+ delay(3000);
+ lcd.clear();
 
 }
