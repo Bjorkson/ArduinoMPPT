@@ -241,7 +241,7 @@ void system_voltage(void)
 {
   if ((bat_volt >BAT_MIN) && (bat_volt < BAT_MAX))
   {
-     system_volt = 12;
+     system_volt = 4.2;
   }
   /*
   else if  ((bat_volt > BAT_MIN*2 ) && (bat_volt < BAT_MAX*2))
@@ -250,7 +250,7 @@ void system_voltage(void)
   }*/
   else if ((bat_volt > BAT_MIN/2 ) && (bat_volt < BAT_MAX/2))
   {
-    system_volt=6;
+    system_volt=2,1;
   }
 
 }
@@ -260,18 +260,18 @@ void system_voltage(void)
 
 void setpoint(void)
 {
-  temp_change =temperature-25.0; // 25deg cel is taken as standard room temperature
+  temp_change = temperature-25.0; // 25deg cel is taken as standard room temperature
  // temperature compensation = -5mv/degC/Cell
   // If temperature is above the room temp ;Charge set point should reduced
   // If temperature is bellow the room temp ;Charge set point should increased
-  if(system_volt ==12)
+  if(system_volt == 4.2)
   {
      bulk_charge_sp = BULK_CH_SP-(0.030*temp_change) ;
      float_charge_sp=FLOAT_CH_SP-(0.030*temp_change) ;
      lvd =LVD;
   }
 
-  else if(system_volt ==6)
+  else if(system_volt == 2.5)
   {
      bulk_charge_sp = (BULK_CH_SP/2)-(0.015*temp_change) ;
      float_charge_sp= (FLOAT_CH_SP/2)-(0.015*temp_change) ;
