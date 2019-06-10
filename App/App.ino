@@ -15,7 +15,7 @@
 #define AVG_NUM 10    // number of iterations of the adc routine to average the adc readings
 #define BAT_MIN 3.6  // minimum battery voltage for 4,2V system
 #define BAT_MAX 4.2  // maximum battery voltage for 4,2V system
-#define BULK_CH_SP 4.2 // bulk charge set point for sealed lead acid battery // flooded type set it to 14.6V
+#define BULK_CH_SP 4.2 // bulk charge set point for sealed lead acid battery // flooded type set it to 4,2
 #define FLOAT_CH_SP 3.6  //float charge set point for lead acid battery
 #define LVD 3.4          //Low voltage disconnect setting for a 12V system
 
@@ -250,7 +250,7 @@ void system_voltage(void)
   }*/
   else if ((bat_volt > BAT_MIN/2 ) && (bat_volt < BAT_MAX/2))
   {
-    system_volt=2,1;
+    system_volt=3,6;
   }
 
 }
@@ -271,7 +271,7 @@ void setpoint(void)
      lvd =LVD;
   }
 
-  else if(system_volt == 2.5)
+  else if(system_volt == 3.6)
   {
      bulk_charge_sp = (BULK_CH_SP/2)-(0.015*temp_change) ;
      float_charge_sp= (FLOAT_CH_SP/2)-(0.015*temp_change) ;
