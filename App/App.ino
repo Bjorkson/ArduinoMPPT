@@ -1,17 +1,25 @@
 #include <Wire.h>
 #include <LiquidCrystal.h>
+#include <DHT.h>
+
+//Branchages des entrées
 #define SOL_ADC A0     // Solar panel side voltage divider is connected to pin A0
 #define BAT_ADC A1    // Battery side voltage divider is connected to pin A1
 #define CURRENT_ADC A2  // ACS 712 current sensor is connected to pin A2
-#define TEMP_ADC A3   // LM 35 Temperature is connected to pin A3
-#define AVG_NUM 10    // number of iterations of the adc routine to average the adc readings
-#define BAT_MIN 10.5  // minimum battery voltage for 12V system
-#define BAT_MAX 15.0  // maximum battery voltage for 12V system
-#define BULK_CH_SP 14.4 // bulk charge set point for sealed lead acid battery // flooded type set it to 14.6V
-#define FLOAT_CH_SP 13.6  //float charge set point for lead acid battery
-#define LVD 11.5          //Low voltage disconnect setting for a 12V system
+#define DHTPIN 4   // DHT11 Temperature is connected to pin 4
+#define DHTTYPE DHT11
 #define PWM_PIN 3         // pin-3 is used to control the charging MOSFET //the default frequency is 490.20Hz
 #define LOAD_PIN 2       // pin-2 is used to control the load
+
+// Paramètres des entrées
+#define AVG_NUM 10    // number of iterations of the adc routine to average the adc readings
+#define BAT_MIN 3.6  // minimum battery voltage for 4,2V system
+#define BAT_MAX 4.2  // maximum battery voltage for 4,2V system
+#define BULK_CH_SP 4.2 // bulk charge set point for sealed lead acid battery // flooded type set it to 14.6V
+#define FLOAT_CH_SP 3.6  //float charge set point for lead acid battery
+#define LVD 3.4          //Low voltage disconnect setting for a 12V system
+
+// LEDS
 #define BAT_RED_LED 5
 #define BAT_GREEN_LED 6
 #define BAT_BLUE_LED 7
@@ -80,9 +88,8 @@ float watts=0;
 float wattSecs = 0;
 float wattHours=0;
 
-// Set the pins on the I2C chip used for LCD connections:
-//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);  // Set the LCD I2C address // In my case 0x27
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);  // Set the LCD address
+DHT dht(DHTPIN, DHTTYPE); // Set the dht
 //******************************************************* MAIN PROGRAM START ************************************************
 void setup()
 {
@@ -150,7 +157,7 @@ int read_adc(int adc_parameter)
      solar_volt = read_adc(SOL_ADC)*0.00488*(120/20);
      bat_volt   = read_adc(BAT_ADC)*0.00488*(120/20);
      load_current = (read_adc(CURRENT_ADC)*.0488 -25);
-     temperature = read_adc(TEMP_ADC)*0.00488*100;
+     temperature = dht.readTemperature();
 
   }
   //------------------------------------------------------------------------------------------------------------
@@ -234,7 +241,7 @@ void system_voltage(void)
 {
   if ((bat_volt >BAT_MIN) && (bat_volt < BAT_MAX))
   {
-     system_volt = 12;
+     system_volt = 4.2;
   }
   /*
   else if  ((bat_volt > BAT_MIN*2 ) && (bat_volt < BAT_MAX*2))
@@ -243,7 +250,7 @@ void system_voltage(void)
   }*/
   else if ((bat_volt > BAT_MIN/2 ) && (bat_volt < BAT_MAX/2))
   {
-    system_volt=6;
+    system_volt=2,1;
   }
 
 }
@@ -253,18 +260,18 @@ void system_voltage(void)
 
 void setpoint(void)
 {
-  temp_change =temperature-25.0; // 25deg cel is taken as standard room temperature
+  temp_change = temperature-25.0; // 25deg cel is taken as standard room temperature
  // temperature compensation = -5mv/degC/Cell
   // If temperature is above the room temp ;Charge set point should reduced
   // If temperature is bellow the room temp ;Charge set point should increased
-  if(system_volt ==12)
+  if(system_volt == 4.2)
   {
      bulk_charge_sp = BULK_CH_SP-(0.030*temp_change) ;
      float_charge_sp=FLOAT_CH_SP-(0.030*temp_change) ;
      lvd =LVD;
   }
 
-  else if(system_volt ==6)
+  else if(system_volt == 2.5)
   {
      bulk_charge_sp = (BULK_CH_SP/2)-(0.015*temp_change) ;
      float_charge_sp= (FLOAT_CH_SP/2)-(0.015*temp_change) ;
