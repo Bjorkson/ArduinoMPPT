@@ -1,11 +1,13 @@
 #include <Wire.h>
 #include <LiquidCrystal.h>
+#include <DHT.h>
 
 //Branchages des entrées
 #define SOL_ADC A0     // Solar panel side voltage divider is connected to pin A0
 #define BAT_ADC A1    // Battery side voltage divider is connected to pin A1
 #define CURRENT_ADC A2  // ACS 712 current sensor is connected to pin A2
-#define TEMP_ADC A3   // LM 35 Temperature is connected to pin A3
+#define DHTPIN 4   // DHT11 Temperature is connected to pin 4
+#define DHTTYPE DHT11
 #define PWM_PIN 3         // pin-3 is used to control the charging MOSFET //the default frequency is 490.20Hz
 #define LOAD_PIN 2       // pin-2 is used to control the load
 
@@ -86,10 +88,8 @@ float watts=0;
 float wattSecs = 0;
 float wattHours=0;
 
-// Set the pins on the I2C chip used for LCD connections:
-//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);  // Set the LCD I2C address // In my case 0x27
-
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);  // Set the LCD address
+DHT dht(DHTPIN, DHTTYPE); // Set the dht
 //******************************************************* MAIN PROGRAM START ************************************************
 void setup()
 {
@@ -157,7 +157,7 @@ int read_adc(int adc_parameter)
      solar_volt = read_adc(SOL_ADC)*0.00488*(120/20);
      bat_volt   = read_adc(BAT_ADC)*0.00488*(120/20);
      load_current = (read_adc(CURRENT_ADC)*.0488 -25);
-     temperature = read_adc(TEMP_ADC)*0.00488*100;
+     temperature = dht.readTemperature();
 
   }
   //------------------------------------------------------------------------------------------------------------
