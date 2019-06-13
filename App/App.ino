@@ -1,12 +1,13 @@
 #include <Wire.h>
 #include <LiquidCrystal.h>
 #include <DHT.h>
+#include <Adafruit_Sensor.h>
 
 //Branchages des entrées
 #define SOL_ADC A0     // Solar panel side voltage divider is connected to pin A0
 #define BAT_ADC A1    // Battery side voltage divider is connected to pin A1
 #define CURRENT_ADC A2  // ACS 712 current sensor is connected to pin A2
-#define DHTPIN 4   // DHT11 Temperature is connected to pin 4
+#define DHTPIN 11   // DHT11 Temperature is connected to pin 4
 #define DHTTYPE DHT11
 #define PWM_PIN 3         // pin-3 is used to control the charging MOSFET //the default frequency is 490.20Hz
 #define LOAD_PIN 2       // pin-2 is used to control the load
@@ -15,7 +16,7 @@
 #define AVG_NUM 10    // number of iterations of the adc routine to average the adc readings
 #define BAT_MIN 3.6  // minimum battery voltage for 4,2V system
 #define BAT_MAX 4.2  // maximum battery voltage for 4,2V system
-#define BULK_CH_SP 4.2 // bulk charge set point for sealed lead acid battery // flooded type set it to 14.6V
+#define BULK_CH_SP 4.2 // bulk charge set point for sealed lead acid battery // flooded type set it to 4,2
 #define FLOAT_CH_SP 3.6  //float charge set point for lead acid battery
 #define LVD 3.4          //Low voltage disconnect setting for a 12V system
 
@@ -67,7 +68,7 @@ byte not_charge[8]=
 float solar_volt=0;
 float bat_volt=0;
 float load_current=0;
-int temperature=0;
+float temperature=0;
 int temp_change=0;
 float system_volt=0;
 float bulk_charge_sp=0;
@@ -104,6 +105,7 @@ pinMode(PWM_PIN,OUTPUT);
 pinMode(LOAD_PIN,OUTPUT);
 digitalWrite(PWM_PIN,LOW);  // default value of pwm duty cycle
 digitalWrite(LOAD_PIN,LOW);  // default load state is OFF
+dht.begin();
 lcd.begin(20,4);   // initialize the lcd for 16 chars 2 lines, turn on backlight
 //lcd.backlight(); // finish with backlight on
 lcd.createChar(1,solar);
@@ -158,7 +160,6 @@ int read_adc(int adc_parameter)
      bat_volt   = read_adc(BAT_ADC)*0.00488*(120/20);
      load_current = (read_adc(CURRENT_ADC)*.0488 -25);
      temperature = dht.readTemperature();
-
   }
   //------------------------------------------------------------------------------------------------------------
 /////////////////////////////////POWER AND ENERGY CALCULATION //////////////////////////////////////////////
@@ -250,7 +251,7 @@ void system_voltage(void)
   }*/
   else if ((bat_volt > BAT_MIN/2 ) && (bat_volt < BAT_MAX/2))
   {
-    system_volt=2,1;
+    system_volt=3,6;
   }
 
 }
@@ -271,7 +272,7 @@ void setpoint(void)
      lvd =LVD;
   }
 
-  else if(system_volt == 2.5)
+  else if(system_volt == 3.6)
   {
      bulk_charge_sp = (BULK_CH_SP/2)-(0.015*temp_change) ;
      float_charge_sp= (FLOAT_CH_SP/2)-(0.015*temp_change) ;
