@@ -14,18 +14,24 @@
 
 // Paramètres des entrées
 #define AVG_NUM 10    // number of iterations of the adc routine to average the adc readings
-#define BAT_MIN 3.6  // minimum battery voltage for 4,2V system
+#define BAT_MIN 3.2  // minimum battery voltage for 4,2V system
 #define BAT_MAX 4.2  // maximum battery voltage for 4,2V system
 #define BULK_CH_SP 4.2 // bulk charge set point for sealed lead acid battery // flooded type set it to 4,2
 #define FLOAT_CH_SP 3.9  //float charge set point for lead acid battery
 #define LVD 3.4          //Low voltage disconnect setting for a 12V system
 
 // LEDS
-#define BAT_RED_LED 5
-#define BAT_GREEN_LED 6
-#define BAT_BLUE_LED 7
-#define LOAD_RED_LED 8
-#define LOAD_GREEN_LED 9
+#define BAT_RED_LED 12
+#define BAT_GREEN_LED 13
+#define BAT_BLUE_LED 12
+#define LOAD_RED_LED 13
+#define LOAD_GREEN_LED 12
+
+//#define BAT_RED_LED 5
+//#define BAT_GREEN_LED 6
+//#define BAT_BLUE_LED 7
+//#define LOAD_RED_LED 8
+//#define LOAD_GREEN_LED 9
 //--------------------------------------------------------------------------------------------------------------------------
 ///////////////////////DECLARATION OF ALL BIT MAP ARRAY FOR FONTS////////////////////////////////////////////////////////////////
 //--------------------------------------------------------------------------------------------------------------------------
@@ -65,10 +71,10 @@ byte not_charge[8]=
 //--------------------------------------------------------------------------------------------------------------------------
 ///////////////////////DECLARATION OF ALL GLOBAL VARIABLES//////////////////////////////////////////////////////////////////
 //--------------------------------------------------------------------------------------------------------------------------
-float solar_volt=10;
-float bat_volt=3.7;
-float load_current=1;
-float temperature=20;
+float solar_volt=0;
+float bat_volt=0;
+float load_current=0;
+float temperature=0;
 float system_volt=0;
 
 int temp_change=0;
@@ -159,11 +165,11 @@ int read_adc(int adc_parameter)
     //5V = ADC value 1024 => 1 ADC value = (5/1024)Volt= 0.0048828Volt
     // Vout=Vin*R2/(R1+R2) => Vin = Vout*(R1+R2)/R2   R1=100 and R2=20
      solar_volt = read_adc(SOL_ADC)*0.00488*(120/20);
-     Serial.println(read_adc(SOL_ADC));
+     //Serial.println(read_adc(SOL_ADC));
      bat_volt = read_adc(BAT_ADC)*0.00488*(120/20);
-     Serial.println(read_adc(BAT_ADC));
+     //Serial.println(read_adc(BAT_ADC));
      load_current = (read_adc(CURRENT_ADC)*0.00488 -1); //-25);
-     Serial.println(read_adc(CURRENT_ADC));
+     //Serial.println(read_adc(CURRENT_ADC));
      temperature = dht.readTemperature();
   }
   //------------------------------------------------------------------------------------------------------------
