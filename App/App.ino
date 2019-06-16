@@ -4,9 +4,9 @@
 #include <Adafruit_Sensor.h>
 
 //Branchages des entrées
-#define SOL_ADC A0     // Solar panel side voltage divider is connected to pin A0
-#define BAT_ADC A1    // Battery side voltage divider is connected to pin A1
-#define CURRENT_ADC A2  // ACS 712 current sensor is connected to pin A2
+#define SOL_ADC A1     // Solar panel side voltage divider is connected to pin A0
+#define BAT_ADC A2    // Battery side voltage divider is connected to pin A1
+#define CURRENT_ADC A3  // ACS 712 current sensor is connected to pin A2
 #define DHTPIN 11   // DHT11 Temperature is connected to pin 4
 #define DHTTYPE DHT11
 #define PWM_PIN 3         // pin-3 is used to control the charging MOSFET //the default frequency is 490.20Hz
@@ -14,18 +14,24 @@
 
 // Paramètres des entrées
 #define AVG_NUM 10    // number of iterations of the adc routine to average the adc readings
-#define BAT_MIN 3.6  // minimum battery voltage for 4,2V system
+#define BAT_MIN 3.2  // minimum battery voltage for 4,2V system
 #define BAT_MAX 4.2  // maximum battery voltage for 4,2V system
 #define BULK_CH_SP 4.2 // bulk charge set point for sealed lead acid battery // flooded type set it to 4,2
-#define FLOAT_CH_SP 3.6  //float charge set point for lead acid battery
+#define FLOAT_CH_SP 3.9  //float charge set point for lead acid battery
 #define LVD 3.4          //Low voltage disconnect setting for a 12V system
 
 // LEDS
-#define BAT_RED_LED 5
-#define BAT_GREEN_LED 6
-#define BAT_BLUE_LED 7
-#define LOAD_RED_LED 8
-#define LOAD_GREEN_LED 9
+#define BAT_RED_LED 12
+#define BAT_GREEN_LED 13
+#define BAT_BLUE_LED 12
+#define LOAD_RED_LED 13
+#define LOAD_GREEN_LED 12
+
+//#define BAT_RED_LED 5
+//#define BAT_GREEN_LED 6
+//#define BAT_BLUE_LED 7
+//#define LOAD_RED_LED 8
+//#define LOAD_GREEN_LED 9
 //--------------------------------------------------------------------------------------------------------------------------
 ///////////////////////DECLARATION OF ALL BIT MAP ARRAY FOR FONTS////////////////////////////////////////////////////////////////
 //--------------------------------------------------------------------------------------------------------------------------
@@ -69,8 +75,9 @@ float solar_volt=0;
 float bat_volt=0;
 float load_current=0;
 float temperature=0;
-int temp_change=0;
 float system_volt=0;
+
+int temp_change=0;
 float bulk_charge_sp=0;
 float float_charge_sp=0;
 float charge_status=0;
@@ -104,7 +111,8 @@ pinMode(LOAD_GREEN_LED,OUTPUT);
 pinMode(PWM_PIN,OUTPUT);
 pinMode(LOAD_PIN,OUTPUT);
 digitalWrite(PWM_PIN,LOW);  // default value of pwm duty cycle
-digitalWrite(LOAD_PIN,LOW);  // default load state is OFF
+digitalWrite(LOAD_PIN,LOW);  // default load state is
+
 dht.begin();
 lcd.begin(20,4);   // initialize the lcd for 16 chars 2 lines, turn on backlight
 //lcd.backlight(); // finish with backlight on
@@ -157,8 +165,11 @@ int read_adc(int adc_parameter)
     //5V = ADC value 1024 => 1 ADC value = (5/1024)Volt= 0.0048828Volt
     // Vout=Vin*R2/(R1+R2) => Vin = Vout*(R1+R2)/R2   R1=100 and R2=20
      solar_volt = read_adc(SOL_ADC)*0.00488*(120/20);
-     bat_volt   = read_adc(BAT_ADC)*0.00488*(120/20);
-     load_current = (read_adc(CURRENT_ADC)*.0488 -25);
+     //Serial.println(read_adc(SOL_ADC));
+     bat_volt = read_adc(BAT_ADC)*0.00488*(120/20);
+     //Serial.println(read_adc(BAT_ADC));
+     load_current = (read_adc(CURRENT_ADC)*0.00488 -1); //-25);
+     //Serial.println(read_adc(CURRENT_ADC));
      temperature = dht.readTemperature();
   }
   //------------------------------------------------------------------------------------------------------------
@@ -190,7 +201,7 @@ last_msec = msec; //Store 'now' for next time
     Serial.print("Battery Voltage: ");
     Serial.print(bat_volt);
     Serial.println("V");
-    Serial.print("Syestem Voltage: ");
+    Serial.print("System Voltage: ");
     Serial.print(system_volt);
     Serial.println("V");
     Serial.print("Charge Set Point:");
@@ -268,14 +279,14 @@ void setpoint(void)
   if(system_volt == 4.2)
   {
      bulk_charge_sp = BULK_CH_SP-(0.030*temp_change) ;
-     float_charge_sp=FLOAT_CH_SP-(0.030*temp_change) ;
+     float_charge_sp = FLOAT_CH_SP-(0.030*temp_change) ;
      lvd =LVD;
   }
 
   else if(system_volt == 3.6)
   {
      bulk_charge_sp = (BULK_CH_SP/2)-(0.015*temp_change) ;
-     float_charge_sp= (FLOAT_CH_SP/2)-(0.015*temp_change) ;
+     float_charge_sp = (FLOAT_CH_SP/2)-(0.015*temp_change) ;
      lvd=LVD/2;
   }
   /*
@@ -295,14 +306,16 @@ void charge_cycle(void)
 {
   if (solar_volt > bat_volt && bat_volt <= bulk_charge_sp)
   {
-
+    Serial.println("bulk");
+    Serial.println(bulk_charge_sp);
+    Serial.println("float");
+    Serial.println(float_charge_sp);
 
    if (bat_volt <= float_charge_sp) // charging start
   {
      charge_status = 1; // indicate the charger is in BULK mode
      duty= 252.45;
      analogWrite(PWM_PIN,duty); // 99 % duty cycle // rapid charging
-
 
   }
   else if (bat_volt >float_charge_sp && bat_volt <= bulk_charge_sp)
